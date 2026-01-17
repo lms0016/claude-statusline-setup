@@ -1,4 +1,4 @@
-# @lms0016/claude-statusline-setup
+# claude-statusline-setup
 
 Setup Claude Code statusline with usage metrics display.
 
@@ -41,9 +41,9 @@ Opus · main ↑2 +3 ~1 · Context 32% (65k/200k) · Session 70% @2pm · Week 6%
 
 - macOS (uses Keychain for token storage)
 - Claude Code CLI
-- Python 3.x
+- Node.js 16+ (required for npm, no additional install needed)
 
 ## Files installed
 
-- `~/.claude/statusline-command.sh` - The statusline script
+- `~/.claude/statusline-command.js` - The statusline script
 - `~/.claude/settings.json` - Updated with statusLine config

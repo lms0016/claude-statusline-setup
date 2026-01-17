@@ -5,8 +5,10 @@
 
 input=$(cat)
 
-# 如果設定了跳過檢查的環境變數，直接允許
-if [ "$SKIP_VERSION_CHECK" = "1" ]; then
+# 如果存在跳過標記檔案，刪除並允許
+SKIP_FILE="/tmp/.skip-version-check"
+if [ -f "$SKIP_FILE" ]; then
+  rm -f "$SKIP_FILE"
   echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
   exit 0
 fi

@@ -13,7 +13,7 @@ else
 fi
 
 # 檢查是否是 git push 命令
-if echo "$cmd" | grep -qE 'git\s+push'; then
+if echo "$cmd" | grep -qE 'git\s+(-C\s+\S+\s+)?push(\s|$)'; then
   last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
 
   if [ "$last_tag" != "none" ]; then

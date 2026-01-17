@@ -1,0 +1,27 @@
+{
+  "name": "@lms0016/claude-statusline-setup",
+  "version": "1.0.0",
+  "description": "Setup Claude Code statusline with usage metrics display",
+  "bin": {
+    "claude-statusline-setup": "./bin/install.js"
+  },
+  "files": [
+    "bin/",
+    "files/"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "statusline",
+    "cli"
+  ],
+  "author": "Alan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lms0016/claude-statusline-setup.git"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

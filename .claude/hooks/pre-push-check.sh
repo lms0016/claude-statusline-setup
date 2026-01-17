@@ -1,8 +1,15 @@
 #!/bin/bash
 
 # Claude Code hook: 在 git push 前提醒檢查版號和 CHANGELOG
+# 設定 SKIP_VERSION_CHECK=1 可跳過檢查
 
 input=$(cat)
+
+# 如果設定了跳過檢查的環境變數，直接允許
+if [ "$SKIP_VERSION_CHECK" = "1" ]; then
+  echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'
+  exit 0
+fi
 
 # 使用 jq 安全地提取命令（如果沒有 jq 則用 grep）
 if command -v jq &> /dev/null; then
@@ -27,9 +34,10 @@ if echo "$cmd" | grep -qE 'git\s+(-C\s+\S+\s+)?push(\s|$)'; then
       cat <<EOF
 {
   "hookSpecificOutput": {
-    "permissionDecision": "ask"
-  },
-  "permissionDecisionReason": "偵測到 git push！自上次發版 ($last_tag) 以來有 $commit_count 個新 commits。\\n\\n建議先完成：\\n1. 更新 package.json 版號\\n2. 更新 CHANGELOG.md\\n3. 新增 git tag\\n\\n最近的 commits: $recent_commits"
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "ask",
+    "permissionDecisionReason": "偵測到 git push！自上次發版 ($last_tag) 以來有 $commit_count 個新 commits。\\n\\n建議先完成：\\n1. 更新 package.json 版號\\n2. 更新 CHANGELOG.md\\n3. 新增 git tag\\n\\n最近的 commits: $recent_commits"
+  }
 }
 EOF
       exit 0
@@ -38,4 +46,4 @@ EOF
 fi
 
 # 允許執行
-echo '{"hookSpecificOutput": {"permissionDecision": "allow"}}'
+echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}'

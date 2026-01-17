@@ -14,7 +14,7 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
-const STATUSLINE_FILE = 'statusline-command.sh';
+const STATUSLINE_FILE = 'statusline-command.js';
 const SETTINGS_FILE = 'settings.json';
 
 function log(msg, color = '') {

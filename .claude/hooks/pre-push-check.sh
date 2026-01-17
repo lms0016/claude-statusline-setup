@@ -26,8 +26,10 @@ if echo "$cmd" | grep -qE 'git\s+(-C\s+\S+\s+)?push(\s|$)'; then
       # 使用 JSON 格式詢問使用者是否繼續
       cat <<EOF
 {
-  "decision": "ask",
-  "message": "偵測到 git push！自上次發版 ($last_tag) 以來有 $commit_count 個新 commits。\\n\\n建議先完成：\\n1. 更新 package.json 版號\\n2. 更新 CHANGELOG.md\\n3. 新增 git tag\\n\\n最近的 commits: $recent_commits\\n\\n是否仍要繼續 push？"
+  "hookSpecificOutput": {
+    "permissionDecision": "ask"
+  },
+  "permissionDecisionReason": "偵測到 git push！自上次發版 ($last_tag) 以來有 $commit_count 個新 commits。\\n\\n建議先完成：\\n1. 更新 package.json 版號\\n2. 更新 CHANGELOG.md\\n3. 新增 git tag\\n\\n最近的 commits: $recent_commits"
 }
 EOF
       exit 0
@@ -36,4 +38,4 @@ EOF
 fi
 
 # 允許執行
-echo '{"decision": "allow"}'
+echo '{"hookSpecificOutput": {"permissionDecision": "allow"}}'

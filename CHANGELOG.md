@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0] - 2026-01-17
+
+### Changed
+- Rewrite statusline script from Python to JavaScript
+  - No longer requires Python 3 to be installed
+  - Only Node.js is needed (which is already required for npm)
+
+### Fixed
+- Improve git command detection regex in pre-push hook
+  - Now correctly detects `git -C /path push` format
+
 ## [1.1.0] - 2026-01-17
 
 ### Added

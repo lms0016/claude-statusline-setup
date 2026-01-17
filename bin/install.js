@@ -99,10 +99,12 @@ function showSuccess() {
   console.log('');
   log('Your statusline will show:', CYAN);
   log('  - Current model name');
-  log('  - Git branch');
+  log('  - Git branch with status (ahead/behind, staged, modified, untracked)');
   log('  - Context window usage');
   log('  - Session usage (5-hour limit)');
   log('  - Weekly usage (7-day limit)');
+  console.log('');
+  log('Git indicators: ↑ahead ↓behind +staged ~modified -deleted ?untracked ✓clean', CYAN);
   console.log('');
   log('Restart Claude Code to see the changes.', YELLOW);
   console.log('');

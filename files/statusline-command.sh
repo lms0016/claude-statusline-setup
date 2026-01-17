@@ -235,11 +235,11 @@ def calculate_context_usage(context_window: dict | None) -> tuple[int, int, floa
 # Git
 # ============================================================================
 
-def get_git_branch(cwd: str | None) -> str | None:
-    """取得 git 分支名稱"""
+def run_git_command(args: list[str], cwd: str | None) -> str | None:
+    """執行 git 指令並回傳輸出"""
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            ["git"] + args,
             capture_output=True,
             text=True,
             cwd=cwd or os.getcwd(),
@@ -250,6 +250,114 @@ def get_git_branch(cwd: str | None) -> str | None:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return None
+
+
+def get_git_branch(cwd: str | None) -> str | None:
+    """取得 git 分支名稱"""
+    return run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+
+
+def get_ahead_behind(cwd: str | None) -> tuple[int, int]:
+    """
+    取得與 upstream 的 commit 差異
+    回傳: (ahead, behind)
+    """
+    # 取得 upstream tracking branch
+    upstream = run_git_command(["rev-parse", "--abbrev-ref", "@{upstream}"], cwd)
+    if not upstream:
+        return 0, 0
+
+    # 取得 ahead/behind 數量
+    result = run_git_command(["rev-list", "--left-right", "--count", f"HEAD...{upstream}"], cwd)
+    if result:
+        parts = result.split()
+        if len(parts) == 2:
+            return int(parts[0]), int(parts[1])
+    return 0, 0
+
+
+def get_git_status(cwd: str | None) -> dict:
+    """
+    取得 git 工作目錄狀態
+    回傳: {staged: int, modified: int, untracked: int, deleted: int, conflicts: int}
+    """
+    status = {"staged": 0, "modified": 0, "untracked": 0, "deleted": 0, "conflicts": 0}
+
+    result = run_git_command(["status", "--porcelain"], cwd)
+    if not result:
+        return status
+
+    for line in result.splitlines():
+        if len(line) < 2:
+            continue
+
+        index_status = line[0]
+        worktree_status = line[1]
+
+        # Conflicts (UU, AA, DD, etc.)
+        if index_status == 'U' or worktree_status == 'U':
+            status["conflicts"] += 1
+        # Staged changes (index)
+        elif index_status in ('A', 'M', 'R', 'C'):
+            status["staged"] += 1
+        elif index_status == 'D':
+            status["deleted"] += 1
+
+        # Unstaged modifications (worktree)
+        if worktree_status == 'M':
+            status["modified"] += 1
+        elif worktree_status == 'D' and index_status != 'D':
+            status["deleted"] += 1
+
+        # Untracked files
+        if index_status == '?' and worktree_status == '?':
+            status["untracked"] += 1
+
+    return status
+
+
+def format_git_info(branch: str | None, cwd: str | None) -> str | None:
+    """
+    格式化完整的 git 資訊
+    格式: main ↑3 ↓1 +5 ~2 -1 ?3 或 main ✓
+    """
+    if not branch:
+        return None
+
+    parts = [f"{CYAN}{branch}{RESET}"]
+
+    # Ahead/Behind
+    ahead, behind = get_ahead_behind(cwd)
+    if ahead > 0:
+        parts.append(f"{GREEN}↑{ahead}{RESET}")
+    if behind > 0:
+        parts.append(f"{YELLOW}↓{behind}{RESET}")
+
+    # Working tree status
+    status = get_git_status(cwd)
+    has_changes = False
+
+    if status["conflicts"] > 0:
+        parts.append(f"{RED}!{status['conflicts']}{RESET}")
+        has_changes = True
+    if status["staged"] > 0:
+        parts.append(f"{GREEN}+{status['staged']}{RESET}")
+        has_changes = True
+    if status["modified"] > 0:
+        parts.append(f"{YELLOW}~{status['modified']}{RESET}")
+        has_changes = True
+    if status["deleted"] > 0:
+        parts.append(f"{RED}-{status['deleted']}{RESET}")
+        has_changes = True
+    if status["untracked"] > 0:
+        parts.append(f"{DIM}?{status['untracked']}{RESET}")
+        has_changes = True
+
+    # Clean working tree
+    if not has_changes and ahead == 0 and behind == 0:
+        parts.append(f"{GREEN}✓{RESET}")
+
+    return " ".join(parts)
 
 # ============================================================================
 # 主程式
@@ -274,6 +382,7 @@ def main():
 
     # 取得各項資訊
     git_branch = get_git_branch(cwd)
+    git_info = format_git_info(git_branch, cwd)
     ctx_used, ctx_total, ctx_percent = calculate_context_usage(context_window)
 
     # 取得 API 使用量（從快取或 API）
@@ -311,8 +420,8 @@ def main():
     if model_name:
         parts.append(f"{BOLD}{MAGENTA}{model_name}{RESET}")
 
-    if git_branch:
-        parts.append(f"{CYAN}{git_branch}{RESET}")
+    if git_info:
+        parts.append(git_info)
 
     parts.append(
         f"Context {ctx_color}{ctx_percent:.0f}%{RESET} "

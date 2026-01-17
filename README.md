@@ -14,15 +14,28 @@ claude-statusline-setup
 Installs a custom statusline for Claude Code that shows:
 
 - Current model name (Opus, Sonnet, Haiku)
-- Git branch
+- Git branch with enhanced status indicators
 - Context window usage
 - Session usage (5-hour rolling limit)
 - Weekly usage (7-day rolling limit)
 
 Example output:
 ```
-Opus · main · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
+Opus · main ↑2 +3 ~1 · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
 ```
+
+### Git Status Indicators
+
+| Symbol | Meaning |
+|--------|---------|
+| `↑N` | N commits ahead of remote |
+| `↓N` | N commits behind remote |
+| `+N` | N staged files |
+| `~N` | N modified files (unstaged) |
+| `-N` | N deleted files |
+| `?N` | N untracked files |
+| `!N` | N merge conflicts |
+| `✓` | Clean working tree |
 
 ## Requirements
 

@@ -4,7 +4,8 @@
  * Claude Code Statusline - 顯示 session 使用量資訊
  *
  * 輸出格式：
- *   Opus · main · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
+ *   Opus · main ✓ · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
+ *   ~/Projects/myapp
  */
 
 const fs = require('fs');
@@ -317,6 +318,16 @@ function getGitStatus(cwd) {
   return status;
 }
 
+function formatCwd(cwd) {
+  if (!cwd) return null;
+  const home = os.homedir();
+  if (cwd === home) return '~';
+  if (cwd.startsWith(home + '/')) {
+    return '~' + cwd.slice(home.length);
+  }
+  return cwd;
+}
+
 function formatGitInfo(branch, cwd) {
   if (!branch) return null;
 
@@ -442,7 +453,14 @@ async function main() {
   const weekResetStr = weekReset ? ` ${DIM}@${weekReset}${RESET}` : '';
   parts.push(`Week ${weekColor}${Math.round(weekUtil)}%${RESET}${weekResetStr}`);
 
+  // 第一行：主要資訊
   console.log(parts.join(SEP));
+
+  // 第二行：當前目錄
+  const cwdDisplay = formatCwd(cwd);
+  if (cwdDisplay) {
+    console.log(`${ORANGE}${cwdDisplay}${RESET}`);
+  }
 }
 
 main();

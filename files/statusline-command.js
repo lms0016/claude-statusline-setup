@@ -323,6 +323,20 @@ function getGitStatus(cwd) {
   return status;
 }
 
+function isWorktree(cwd) {
+  const gitDir = runGitCommand(['rev-parse', '--git-dir'], cwd);
+  const gitCommonDir = runGitCommand(['rev-parse', '--git-common-dir'], cwd);
+
+  if (!gitDir || !gitCommonDir) return false;
+
+  // Normalize paths for comparison
+  const basePath = cwd || process.cwd();
+  const normalizedGitDir = path.resolve(basePath, gitDir);
+  const normalizedCommonDir = path.resolve(basePath, gitCommonDir);
+
+  return normalizedGitDir !== normalizedCommonDir;
+}
+
 function formatCwd(cwd) {
   if (!cwd) return null;
   const home = os.homedir();
@@ -341,7 +355,14 @@ function formatCwd(cwd) {
 function formatGitInfo(branch, cwd) {
   if (!branch) return null;
 
-  const parts = [`${CYAN}${branch}${RESET}`];
+  const parts = [];
+
+  // Worktree indicator
+  if (isWorktree(cwd)) {
+    parts.push(`${DIM}[worktree]${RESET}`);
+  }
+
+  parts.push(`${CYAN}${branch}${RESET}`);
 
   const { ahead, behind } = getAheadBehind(cwd);
   if (ahead > 0) parts.push(`${GREEN}↑${ahead}${RESET}`);

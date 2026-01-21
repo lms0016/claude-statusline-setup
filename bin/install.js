@@ -73,13 +73,15 @@ function updateSettings() {
   // Check if statusLine is already configured
   const statusLineConfig = {
     type: 'command',
-    command: `~/.claude/${STATUSLINE_FILE}`,
+    command: `node "${path.join(os.homedir(), '.claude', STATUSLINE_FILE)}"`,
     padding: 0
   };
 
+  const expectedCommand = `node "${path.join(os.homedir(), '.claude', STATUSLINE_FILE)}"`;
+
   if (settings.statusLine &&
       settings.statusLine.type === 'command' &&
-      settings.statusLine.command === statusLineConfig.command) {
+      settings.statusLine.command === expectedCommand) {
     log('statusLine is already configured', CYAN);
     return;
   }

@@ -18,7 +18,7 @@ const https = require('https');
 // 設定
 // ============================================================================
 
-const CACHE_FILE = '/tmp/claude-usage-cache.json';
+const CACHE_FILE = path.join(os.tmpdir(), 'claude-usage-cache.json');
 const CACHE_TTL = 300; // 快取有效期（秒）
 const API_URL = 'https://api.anthropic.com/api/oauth/usage';
 const TIMEZONE_OFFSET = 8; // Asia/Taipei UTC+8
@@ -62,6 +62,11 @@ function getContextColor(percentage) {
 // ============================================================================
 
 function getTokenFromKeychain() {
+  // Windows 不支援 macOS Keychain
+  if (process.platform === 'win32') {
+    return null;
+  }
+
   try {
     const result = execSync(
       'security find-generic-password -s "Claude Code-credentials" -w',
@@ -321,11 +326,16 @@ function getGitStatus(cwd) {
 function formatCwd(cwd) {
   if (!cwd) return null;
   const home = os.homedir();
-  if (cwd === home) return '~';
-  if (cwd.startsWith(home + '/')) {
-    return '~' + cwd.slice(home.length);
+
+  // 標準化路徑：將 Windows 反斜線轉為正斜線
+  const normalizedCwd = cwd.replace(/\\/g, '/');
+  const normalizedHome = home.replace(/\\/g, '/');
+
+  if (normalizedCwd === normalizedHome) return '~';
+  if (normalizedCwd.startsWith(normalizedHome + '/')) {
+    return '~' + normalizedCwd.slice(normalizedHome.length);
   }
-  return cwd;
+  return normalizedCwd;
 }
 
 function formatGitInfo(branch, cwd) {

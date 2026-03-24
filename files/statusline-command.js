@@ -245,7 +245,22 @@ function collectGitData(cwd) {
     }
   }
 
-  const data = { branch, worktree, ahead, behind, status };
+  // Diff stats (staged + unstaged lines added/removed)
+  let linesAdded = 0, linesRemoved = 0;
+  for (const args of [['diff', '--numstat'], ['diff', '--cached', '--numstat']]) {
+    const output = runGit(args, cwd);
+    if (output) {
+      for (const line of output.split('\n')) {
+        const m = line.match(/^(\d+)\s+(\d+)/);
+        if (m) {
+          linesAdded   += parseInt(m[1], 10) || 0;
+          linesRemoved += parseInt(m[2], 10) || 0;
+        }
+      }
+    }
+  }
+
+  const data = { branch, worktree, ahead, behind, status, linesAdded, linesRemoved };
   saveGitCache(cwd, data);
   return data;
 }
@@ -404,10 +419,10 @@ function main() {
   }
 
   if (gitInfo) {
-    const linesDisplay = formatLinesChanged(
-      input.cost?.total_lines_added,
-      input.cost?.total_lines_removed,
-    );
+    const git = collectGitData(cwd);
+    const linesDisplay = git
+      ? formatLinesChanged(git.linesAdded, git.linesRemoved)
+      : null;
     const gitSegment = linesDisplay
       ? `${gitInfo} ${DIM}(${RESET}${linesDisplay}${DIM})${RESET}`
       : gitInfo;

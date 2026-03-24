@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1] - 2026-03-24
+
+### Fixed
+
+- Lines changed now shows actual git diff stats (uncommitted changes) instead of
+  cumulative session metrics
+- Lines indicator disappears when working tree is clean
+
 ## [1.4.0] - 2026-03-24
 
 ### Added

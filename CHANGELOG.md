@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0] - 2026-03-24
+
+### Added
+
+- Git worktree detection with `[worktree]` indicator
+- Session cost display (💰 $X.XX) on line 2
+- Lines changed display (+N -N lines) merged into git info section
+
+### Changed
+
+- Use built-in stdin JSON for rate limits instead of API calls
+- Move lines changed into git info as parenthesized suffix
+- Streamline line 2 layout (path + cost only)
+
+### Removed
+
+- Cache hit rate display (redundant with cost display)
+- Clickable GitHub link (OSC 8 not supported in statusline)
+
 ## [1.2.0] - 2026-01-17
 
 ### Changed

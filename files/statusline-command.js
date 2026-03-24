@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Claude Code Statusline - 顯示 session 使用量資訊
+ * Claude Code Statusline - displays session usage info from stdin JSON
  *
- * 輸出格式：
- *   Opus · main ✓ · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
+ * Output format:
+ *   ModelName · branch ✓ · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
  *   ~/Projects/myapp
  */
 
@@ -12,324 +12,184 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
-const https = require('https');
 
 // ============================================================================
-// 設定
+// Config
 // ============================================================================
 
-const CACHE_FILE = path.join(os.tmpdir(), 'claude-usage-cache.json');
-const CACHE_TTL = 300; // 快取有效期（秒）
-const API_URL = 'https://api.anthropic.com/api/oauth/usage';
+const GIT_CACHE_FILE = path.join(os.tmpdir(), 'claude-statusline-git-cache.json');
+const GIT_CACHE_TTL = 5; // seconds
 const TIMEZONE_OFFSET = 8; // Asia/Taipei UTC+8
 const DEFAULT_CONTEXT_SIZE = 200000;
 
 // ============================================================================
-// ANSI 色碼
+// ANSI color codes
 // ============================================================================
 
-const GREEN = '\x1b[32m';
-const YELLOW = '\x1b[33m';
-const ORANGE = '\x1b[38;5;208m';
-const RED = '\x1b[31m';
-const CYAN = '\x1b[36m';
+const GREEN   = '\x1b[32m';
+const YELLOW  = '\x1b[33m';
+const ORANGE  = '\x1b[38;5;208m';
+const RED     = '\x1b[31m';
+const CYAN    = '\x1b[36m';
 const MAGENTA = '\x1b[35m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[2m';
-const RESET = '\x1b[0m';
+const BOLD    = '\x1b[1m';
+const DIM     = '\x1b[2m';
+const RESET   = '\x1b[0m';
 
 const SEP = ` ${DIM}·${RESET} `;
 
 // ============================================================================
-// 顏色判斷
+// Color thresholds
 // ============================================================================
 
-function getColor(percentage) {
-  if (percentage >= 80) return RED;
-  if (percentage >= 50) return YELLOW;
+function getRateLimitColor(pct) {
+  if (pct >= 80) return RED;
+  if (pct >= 50) return YELLOW;
   return GREEN;
 }
 
-function getContextColor(percentage) {
-  if (percentage >= 80) return RED;
-  if (percentage >= 70) return ORANGE;
-  if (percentage >= 50) return YELLOW;
+function getContextColor(pct) {
+  if (pct >= 80) return RED;
+  if (pct >= 70) return ORANGE;
+  if (pct >= 50) return YELLOW;
   return GREEN;
 }
 
 // ============================================================================
-// Token 相關
+// Time formatting (Asia/Taipei UTC+8)
 // ============================================================================
 
-function getTokenFromKeychain() {
-  // Windows 不支援 macOS Keychain
-  if (process.platform === 'win32') {
-    return null;
-  }
-
-  try {
-    const result = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }
-    ).trim();
-    if (result) {
-      const creds = JSON.parse(result);
-      return creds?.claudeAiOauth?.accessToken || null;
-    }
-  } catch {
-    // Keychain 存取失敗，忽略
-  }
-  return null;
+function toLocalDt(epochSeconds) {
+  return new Date(epochSeconds * 1000 + TIMEZONE_OFFSET * 60 * 60 * 1000);
 }
-
-function getTokenFromFile() {
-  const credsFile = path.join(os.homedir(), '.claude', '.credentials.json');
-  try {
-    if (fs.existsSync(credsFile)) {
-      const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
-      return creds?.claudeAiOauth?.accessToken || null;
-    }
-  } catch {
-    // 檔案讀取失敗，忽略
-  }
-  return null;
-}
-
-function getToken() {
-  return getTokenFromKeychain() || getTokenFromFile();
-}
-
-// ============================================================================
-// API 與快取
-// ============================================================================
-
-function fetchUsage(token) {
-  return new Promise((resolve) => {
-    const url = new URL(API_URL);
-    const options = {
-      hostname: url.hostname,
-      path: url.pathname,
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'claude-code/2.0.32',
-        'Authorization': `Bearer ${token}`,
-        'anthropic-beta': 'oauth-2025-04-20',
-      },
-      timeout: 10000,
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.end();
-  });
-}
-
-function loadCache() {
-  try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const cache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-      if (Date.now() / 1000 - (cache.timestamp || 0) < CACHE_TTL) {
-        return cache.data;
-      }
-    }
-  } catch {
-    // 快取讀取失敗，忽略
-  }
-  return null;
-}
-
-function saveCache(data) {
-  try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({
-      timestamp: Date.now() / 1000,
-      data,
-    }));
-  } catch {
-    // 快取寫入失敗，忽略
-  }
-}
-
-// ============================================================================
-// 格式化工具
-// ============================================================================
 
 function formatHour(hour, minute) {
   let hourStr, ampm;
-  if (hour === 0) {
-    hourStr = '12'; ampm = 'am';
-  } else if (hour < 12) {
-    hourStr = String(hour); ampm = 'am';
-  } else if (hour === 12) {
-    hourStr = '12'; ampm = 'pm';
-  } else {
-    hourStr = String(hour - 12); ampm = 'pm';
-  }
+  if (hour === 0)       { hourStr = '12'; ampm = 'am'; }
+  else if (hour < 12)   { hourStr = String(hour); ampm = 'am'; }
+  else if (hour === 12) { hourStr = '12'; ampm = 'pm'; }
+  else                  { hourStr = String(hour - 12); ampm = 'pm'; }
 
-  if (minute > 0) {
-    return `${hourStr}:${String(minute).padStart(2, '0')}${ampm}`;
-  }
-  return `${hourStr}${ampm}`;
+  return minute > 0
+    ? `${hourStr}:${String(minute).padStart(2, '0')}${ampm}`
+    : `${hourStr}${ampm}`;
 }
 
-function formatTime(isoTime) {
-  if (!isoTime) return 'N/A';
+// Accepts Unix epoch seconds or ISO string; returns "2pm" style
+function formatResetTime(value) {
+  if (value == null) return null;
   try {
-    const dt = new Date(isoTime);
-    const localDt = new Date(dt.getTime() + TIMEZONE_OFFSET * 60 * 60 * 1000);
-    return formatHour(localDt.getUTCHours(), localDt.getUTCMinutes());
+    const epochSec = typeof value === 'number' ? value : Date.parse(value) / 1000;
+    if (isNaN(epochSec)) return null;
+    const dt = toLocalDt(epochSec);
+    return formatHour(dt.getUTCHours(), dt.getUTCMinutes());
   } catch {
-    return 'N/A';
+    return null;
   }
 }
 
-function formatWeekReset(isoTime) {
-  if (!isoTime) return '';
+// Returns "Jan 24, 2pm" style for the weekly reset
+function formatWeekReset(value) {
+  if (value == null) return null;
   try {
-    const dt = new Date(isoTime);
-    const localDt = new Date(dt.getTime() + TIMEZONE_OFFSET * 60 * 60 * 1000);
-
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthStr = months[localDt.getUTCMonth()];
-    const timeStr = formatHour(localDt.getUTCHours(), localDt.getUTCMinutes());
-
-    return `${monthStr} ${localDt.getUTCDate()}, ${timeStr}`;
+    const epochSec = typeof value === 'number' ? value : Date.parse(value) / 1000;
+    if (isNaN(epochSec)) return null;
+    const dt = toLocalDt(epochSec);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const timeStr = formatHour(dt.getUTCHours(), dt.getUTCMinutes());
+    return `${months[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${timeStr}`;
   } catch {
-    return '';
+    return null;
   }
 }
+
+// ============================================================================
+// Token formatting
+// ============================================================================
 
 function formatTokens(tokens) {
-  if (tokens >= 1000000) {
-    return `${(tokens / 1000000).toFixed(1)}M`;
-  }
-  if (tokens >= 1000) {
-    return `${Math.floor(tokens / 1000)}k`;
-  }
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000)     return `${Math.floor(tokens / 1_000)}k`;
   return String(tokens);
 }
 
 // ============================================================================
-// Context 計算
+// Context window calculation
 // ============================================================================
 
 function calculateContextUsage(contextWindow) {
-  if (!contextWindow) {
-    return { used: 0, total: DEFAULT_CONTEXT_SIZE, percentage: 0 };
+  if (!contextWindow) return { used: 0, total: DEFAULT_CONTEXT_SIZE, percentage: 0 };
+
+  // Prefer pre-calculated percentage when available
+  if (contextWindow.used_percentage != null) {
+    const pct   = contextWindow.used_percentage;
+    const total = contextWindow.context_window_size || DEFAULT_CONTEXT_SIZE;
+    const used  = Math.round(pct / 100 * total);
+    return { used, total, percentage: pct };
   }
 
-  const contextSize = contextWindow.context_window_size || DEFAULT_CONTEXT_SIZE;
-
-  let usedTokens = 0;
-  const currentUsage = contextWindow.current_usage;
-  if (currentUsage) {
-    usedTokens = (currentUsage.input_tokens || 0) +
-                 (currentUsage.cache_read_input_tokens || 0) +
-                 (currentUsage.cache_creation_input_tokens || 0);
+  const total = contextWindow.context_window_size || DEFAULT_CONTEXT_SIZE;
+  let used = 0;
+  const cur = contextWindow.current_usage;
+  if (cur) {
+    used = (cur.input_tokens || 0)
+         + (cur.cache_read_input_tokens || 0)
+         + (cur.cache_creation_input_tokens || 0);
   } else {
-    usedTokens = contextWindow.total_input_tokens || 0;
+    used = contextWindow.total_input_tokens || 0;
   }
 
-  const percentage = contextSize > 0 ? (usedTokens * 100) / contextSize : 0;
-  return { used: usedTokens, total: contextSize, percentage };
+  const percentage = total > 0 ? (used * 100) / total : 0;
+  return { used, total, percentage };
 }
 
 // ============================================================================
-// Git
+// Git (with 5-second file cache keyed by cwd)
 // ============================================================================
 
-function runGitCommand(args, cwd) {
+function runGit(args, cwd) {
   try {
-    const result = execSync(`git ${args.join(' ')}`, {
+    return execSync(`git ${args.join(' ')}`, {
       encoding: 'utf8',
       cwd: cwd || process.cwd(),
       timeout: 2000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return result.trim();
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+    }).trim();
   } catch {
     return null;
   }
 }
 
-function getGitBranch(cwd) {
-  return runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+function loadGitCache(cwd) {
+  try {
+    if (fs.existsSync(GIT_CACHE_FILE)) {
+      const cache = JSON.parse(fs.readFileSync(GIT_CACHE_FILE, 'utf8'));
+      if (cache.cwd === cwd && (Date.now() / 1000 - (cache.timestamp || 0)) < GIT_CACHE_TTL) {
+        return cache.data;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
-function getAheadBehind(cwd) {
-  const upstream = runGitCommand(['rev-parse', '--abbrev-ref', '@{upstream}'], cwd);
-  if (!upstream) return { ahead: 0, behind: 0 };
-
-  const result = runGitCommand(['rev-list', '--left-right', '--count', `HEAD...${upstream}`], cwd);
-  if (result) {
-    const parts = result.split(/\s+/);
-    if (parts.length === 2) {
-      return { ahead: parseInt(parts[0], 10), behind: parseInt(parts[1], 10) };
-    }
-  }
-  return { ahead: 0, behind: 0 };
-}
-
-function getGitStatus(cwd) {
-  const status = { staged: 0, modified: 0, untracked: 0, deleted: 0, conflicts: 0 };
-
-  const result = runGitCommand(['status', '--porcelain'], cwd);
-  if (!result) return status;
-
-  for (const line of result.split('\n')) {
-    if (line.length < 2) continue;
-
-    const indexStatus = line[0];
-    const worktreeStatus = line[1];
-
-    // Conflicts
-    if (indexStatus === 'U' || worktreeStatus === 'U') {
-      status.conflicts++;
-    }
-    // Staged changes
-    else if (['A', 'M', 'R', 'C'].includes(indexStatus)) {
-      status.staged++;
-    } else if (indexStatus === 'D') {
-      status.deleted++;
-    }
-
-    // Unstaged modifications
-    if (worktreeStatus === 'M') {
-      status.modified++;
-    } else if (worktreeStatus === 'D' && indexStatus !== 'D') {
-      status.deleted++;
-    }
-
-    // Untracked
-    if (indexStatus === '?' && worktreeStatus === '?') {
-      status.untracked++;
-    }
-  }
-
-  return status;
+function saveGitCache(cwd, data) {
+  try {
+    fs.writeFileSync(GIT_CACHE_FILE, JSON.stringify({
+      cwd,
+      timestamp: Date.now() / 1000,
+      data,
+    }));
+  } catch { /* ignore */ }
 }
 
 function isWorktree(cwd) {
-  const gitDir = runGitCommand(['rev-parse', '--git-dir'], cwd);
-  const gitCommonDir = runGitCommand(['rev-parse', '--git-common-dir'], cwd);
+  const gitDir = runGit(['rev-parse', '--git-dir'], cwd);
+  const gitCommonDir = runGit(['rev-parse', '--git-common-dir'], cwd);
 
   if (!gitDir || !gitCommonDir) return false;
 
-  // Normalize paths for comparison
   const basePath = cwd || process.cwd();
   const normalizedGitDir = path.resolve(basePath, gitDir);
   const normalizedCommonDir = path.resolve(basePath, gitCommonDir);
@@ -337,11 +197,97 @@ function isWorktree(cwd) {
   return normalizedGitDir !== normalizedCommonDir;
 }
 
+function collectGitData(cwd) {
+  const cached = loadGitCache(cwd);
+  if (cached) return cached;
+
+  const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  if (!branch) {
+    saveGitCache(cwd, null);
+    return null;
+  }
+
+  // Worktree detection
+  const worktree = isWorktree(cwd);
+
+  // Ahead / behind
+  let ahead = 0, behind = 0;
+  const upstream = runGit(['rev-parse', '--abbrev-ref', '@{upstream}'], cwd);
+  if (upstream) {
+    const ab = runGit(['rev-list', '--left-right', '--count', `HEAD...${upstream}`], cwd);
+    if (ab) {
+      const parts = ab.split(/\s+/);
+      if (parts.length === 2) {
+        ahead  = parseInt(parts[0], 10) || 0;
+        behind = parseInt(parts[1], 10) || 0;
+      }
+    }
+  }
+
+  // Porcelain status
+  const status = { staged: 0, modified: 0, untracked: 0, deleted: 0, conflicts: 0 };
+  const porcelain = runGit(['status', '--porcelain'], cwd);
+  if (porcelain) {
+    for (const line of porcelain.split('\n')) {
+      if (line.length < 2) continue;
+      const idx = line[0], wt = line[1];
+      if (idx === 'U' || wt === 'U') {
+        status.conflicts++;
+      } else if (['A', 'M', 'R', 'C'].includes(idx)) {
+        status.staged++;
+      } else if (idx === 'D') {
+        status.deleted++;
+      }
+      if (wt === 'M') status.modified++;
+      else if (wt === 'D' && idx !== 'D') status.deleted++;
+      if (idx === '?' && wt === '?') status.untracked++;
+    }
+  }
+
+  const data = { branch, worktree, ahead, behind, status };
+  saveGitCache(cwd, data);
+  return data;
+}
+
+function formatGitInfo(cwd) {
+  const git = collectGitData(cwd);
+  if (!git) return null;
+
+  const { branch, worktree, ahead, behind, status } = git;
+  const parts = [];
+
+  if (worktree) {
+    parts.push(`${DIM}[worktree]${RESET}`);
+  }
+
+  parts.push(`${CYAN}${branch}${RESET}`);
+
+  if (ahead  > 0) parts.push(`${GREEN}↑${ahead}${RESET}`);
+  if (behind > 0) parts.push(`${YELLOW}↓${behind}${RESET}`);
+
+  let hasChanges = false;
+  if (status.conflicts > 0) { parts.push(`${RED}!${status.conflicts}${RESET}`);  hasChanges = true; }
+  if (status.staged    > 0) { parts.push(`${GREEN}+${status.staged}${RESET}`);   hasChanges = true; }
+  if (status.modified  > 0) { parts.push(`${YELLOW}~${status.modified}${RESET}`); hasChanges = true; }
+  if (status.deleted   > 0) { parts.push(`${RED}-${status.deleted}${RESET}`);    hasChanges = true; }
+  if (status.untracked > 0) { parts.push(`${DIM}?${status.untracked}${RESET}`);  hasChanges = true; }
+
+  if (!hasChanges && ahead === 0 && behind === 0) {
+    parts.push(`${GREEN}✓${RESET}`);
+  }
+
+  return parts.join(' ');
+}
+
+// ============================================================================
+// Path formatting
+// ============================================================================
+
 function formatCwd(cwd) {
   if (!cwd) return null;
   const home = os.homedir();
 
-  // 標準化路徑：將 Windows 反斜線轉為正斜線
+  // Normalize paths: convert Windows backslashes to forward slashes
   const normalizedCwd = cwd.replace(/\\/g, '/');
   const normalizedHome = home.replace(/\\/g, '/');
 
@@ -352,115 +298,33 @@ function formatCwd(cwd) {
   return normalizedCwd;
 }
 
-function formatGitInfo(branch, cwd) {
-  if (!branch) return null;
-
-  const parts = [];
-
-  // Worktree indicator
-  if (isWorktree(cwd)) {
-    parts.push(`${DIM}[worktree]${RESET}`);
-  }
-
-  parts.push(`${CYAN}${branch}${RESET}`);
-
-  const { ahead, behind } = getAheadBehind(cwd);
-  if (ahead > 0) parts.push(`${GREEN}↑${ahead}${RESET}`);
-  if (behind > 0) parts.push(`${YELLOW}↓${behind}${RESET}`);
-
-  const status = getGitStatus(cwd);
-  let hasChanges = false;
-
-  if (status.conflicts > 0) {
-    parts.push(`${RED}!${status.conflicts}${RESET}`);
-    hasChanges = true;
-  }
-  if (status.staged > 0) {
-    parts.push(`${GREEN}+${status.staged}${RESET}`);
-    hasChanges = true;
-  }
-  if (status.modified > 0) {
-    parts.push(`${YELLOW}~${status.modified}${RESET}`);
-    hasChanges = true;
-  }
-  if (status.deleted > 0) {
-    parts.push(`${RED}-${status.deleted}${RESET}`);
-    hasChanges = true;
-  }
-  if (status.untracked > 0) {
-    parts.push(`${DIM}?${status.untracked}${RESET}`);
-    hasChanges = true;
-  }
-
-  // Clean working tree
-  if (!hasChanges && ahead === 0 && behind === 0) {
-    parts.push(`${GREEN}✓${RESET}`);
-  }
-
-  return parts.join(' ');
-}
-
 // ============================================================================
-// 主程式
+// Main
 // ============================================================================
 
-async function main() {
-  let cwd = null;
-  let modelName = null;
-  let contextWindow = null;
-
-  // 讀取 stdin
+function main() {
+  // Read and parse stdin JSON
+  let input = {};
   try {
-    const stdinData = fs.readFileSync(0, 'utf8');
-    if (stdinData) {
-      const inputJson = JSON.parse(stdinData);
-      cwd = inputJson.cwd || inputJson.workspace?.current_dir;
-      const modelInfo = inputJson.model || {};
-      modelName = modelInfo.display_name || modelInfo.id;
-      contextWindow = inputJson.context_window;
-    }
-  } catch {
-    // stdin 讀取失敗，忽略
-  }
+    const raw = fs.readFileSync(0, 'utf8');
+    if (raw) input = JSON.parse(raw);
+  } catch { /* ignore */ }
 
-  // 取得各項資訊
-  const gitBranch = getGitBranch(cwd);
-  const gitInfo = formatGitInfo(gitBranch, cwd);
-  const ctx = calculateContextUsage(contextWindow);
+  const cwd       = input.cwd || input.workspace?.current_dir || null;
+  const modelName = input.model?.display_name || input.model?.id || null;
 
-  // 取得 API 使用量
-  let data = loadCache();
-  if (!data) {
-    const token = getToken();
-    if (!token) {
-      console.log(`${DIM}No token${RESET}`);
-      return;
-    }
-
-    data = await fetchUsage(token);
-    if (!data) {
-      console.log(`${DIM}API error${RESET}`);
-      return;
-    }
-
-    saveCache(data);
-  }
-
-  // 解析 API 資料
-  const fiveHour = data.five_hour || {};
-  const sevenDay = data.seven_day || {};
-
-  const sessionUtil = fiveHour.utilization || 0;
-  const sessionReset = formatTime(fiveHour.resets_at);
-  const weekUtil = sevenDay.utilization || 0;
-  const weekReset = formatWeekReset(sevenDay.resets_at);
-
-  // 取得顏色
-  const sessionColor = getColor(sessionUtil);
-  const weekColor = getColor(weekUtil);
+  // Context window
+  const ctx      = calculateContextUsage(input.context_window);
   const ctxColor = getContextColor(ctx.percentage);
 
-  // 組合輸出
+  // Rate limits from stdin JSON
+  const fiveHour = input.rate_limits?.five_hour  || null;
+  const sevenDay = input.rate_limits?.seven_day  || null;
+
+  // Git info (cached)
+  const gitInfo = formatGitInfo(cwd);
+
+  // ── Assemble line 1 ────────────────────────────────────────────────────────
   const parts = [];
 
   if (modelName) {
@@ -471,23 +335,33 @@ async function main() {
     parts.push(gitInfo);
   }
 
+  // Context segment
   parts.push(
     `Context ${ctxColor}${Math.round(ctx.percentage)}%${RESET} ` +
     `${DIM}(${formatTokens(ctx.used)}/${formatTokens(ctx.total)})${RESET}`
   );
 
-  parts.push(
-    `Session ${sessionColor}${Math.round(sessionUtil)}%${RESET} ` +
-    `${DIM}@${sessionReset}${RESET}`
-  );
+  // Session (5-hour) segment
+  if (fiveHour != null) {
+    const pct   = fiveHour.used_percentage ?? 0;
+    const color = getRateLimitColor(pct);
+    const reset = formatResetTime(fiveHour.resets_at);
+    const resetStr = reset ? ` ${DIM}@${reset}${RESET}` : '';
+    parts.push(`Session ${color}${Math.round(pct)}%${RESET}${resetStr}`);
+  }
 
-  const weekResetStr = weekReset ? ` ${DIM}@${weekReset}${RESET}` : '';
-  parts.push(`Week ${weekColor}${Math.round(weekUtil)}%${RESET}${weekResetStr}`);
+  // Week (7-day) segment
+  if (sevenDay != null) {
+    const pct   = sevenDay.used_percentage ?? 0;
+    const color = getRateLimitColor(pct);
+    const reset = formatWeekReset(sevenDay.resets_at);
+    const resetStr = reset ? ` ${DIM}@${reset}${RESET}` : '';
+    parts.push(`Week ${color}${Math.round(pct)}%${RESET}${resetStr}`);
+  }
 
-  // 第一行：主要資訊
   console.log(parts.join(SEP));
 
-  // 第二行：當前目錄
+  // ── Line 2: current directory ──────────────────────────────────────────────
   const cwdDisplay = formatCwd(cwd);
   if (cwdDisplay) {
     console.log(`${ORANGE}${cwdDisplay}${RESET}`);

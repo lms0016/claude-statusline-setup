@@ -404,7 +404,14 @@ function main() {
   }
 
   if (gitInfo) {
-    parts.push(gitInfo);
+    const linesDisplay = formatLinesChanged(
+      input.cost?.total_lines_added,
+      input.cost?.total_lines_removed,
+    );
+    const gitSegment = linesDisplay
+      ? `${gitInfo} ${DIM}(${RESET}${linesDisplay}${DIM})${RESET}`
+      : gitInfo;
+    parts.push(gitSegment);
   }
 
   // Context segment
@@ -443,31 +450,14 @@ function main() {
 
   const costDisplay = formatCost(input.cost?.total_cost_usd);
   if (costDisplay) {
-    line2Parts.push(`${BOLD}${costDisplay}${RESET}`);
+    line2Parts.push(`💰 ${costDisplay}`);
   }
 
-  const linesDisplay = formatLinesChanged(
-    input.cost?.total_lines_added,
-    input.cost?.total_lines_removed,
-  );
-  if (linesDisplay) {
-    line2Parts.push(linesDisplay);
-  }
-
-  const cacheDisplay = formatCacheRate(input.context_window?.current_usage);
-  if (cacheDisplay) {
-    line2Parts.push(cacheDisplay);
-  }
 
   if (line2Parts.length > 0) {
     console.log(line2Parts.join(SEP));
   }
 
-  // ── Line 3: clickable GitHub repo link ────────────────────────────────────
-  const ghLink = formatGitHubLink(cwd);
-  if (ghLink) {
-    console.log(ghLink);
-  }
 }
 
 main();

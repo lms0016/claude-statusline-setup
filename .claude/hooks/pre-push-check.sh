@@ -23,6 +23,15 @@ fi
 
 # 檢查是否是 git push 命令
 if echo "$cmd" | grep -qE 'git\s+(-C\s+\S+\s+)?push(\s|$)'; then
+  # Auto-tag: if HEAD is a release commit, create the git tag
+  head_msg=$(git log -1 --format=%s 2>/dev/null)
+  if echo "$head_msg" | grep -qE '^chore: release v[0-9]+\.[0-9]+\.[0-9]+'; then
+    release_ver=$(echo "$head_msg" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+    if [ -n "$release_ver" ] && ! git rev-parse "$release_ver" >/dev/null 2>&1; then
+      git tag "$release_ver" HEAD 2>/dev/null
+    fi
+  fi
+
   last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
 
   if [ "$last_tag" != "none" ]; then

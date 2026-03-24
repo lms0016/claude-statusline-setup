@@ -5,7 +5,8 @@
  *
  * Output format:
  *   ModelName · branch ✓ · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
- *   ~/Projects/myapp
+ *   ~/Projects/myapp · $0.42 · +120 -15 lines · Cache 85%
+ *   user/repo  (clickable link to GitHub)
  */
 
 const fs = require('fs');
@@ -299,6 +300,77 @@ function formatCwd(cwd) {
 }
 
 // ============================================================================
+// Cost formatting
+// ============================================================================
+
+function formatCost(costUsd) {
+  if (costUsd == null || costUsd === 0) return null;
+  if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
+  if (costUsd < 1) return `$${costUsd.toFixed(2)}`;
+  return `$${costUsd.toFixed(2)}`;
+}
+
+// ============================================================================
+// Lines changed formatting
+// ============================================================================
+
+function formatLinesChanged(added, removed) {
+  if ((added == null || added === 0) && (removed == null || removed === 0)) return null;
+  const parts = [];
+  if (added > 0)   parts.push(`${GREEN}+${added}${RESET}`);
+  if (removed > 0)  parts.push(`${RED}-${removed}${RESET}`);
+  return parts.join(' ') + ` ${DIM}lines${RESET}`;
+}
+
+// ============================================================================
+// Cache hit rate
+// ============================================================================
+
+function formatCacheRate(currentUsage) {
+  if (!currentUsage) return null;
+  const cacheRead = currentUsage.cache_read_input_tokens || 0;
+  const cacheCreate = currentUsage.cache_creation_input_tokens || 0;
+  const inputTokens = currentUsage.input_tokens || 0;
+  const totalInput = cacheRead + cacheCreate + inputTokens;
+  if (totalInput === 0) return null;
+  const rate = (cacheRead / totalInput) * 100;
+  const color = rate >= 70 ? GREEN : rate >= 40 ? YELLOW : DIM;
+  return `Cache ${color}${Math.round(rate)}%${RESET}`;
+}
+
+// ============================================================================
+// Clickable GitHub link (OSC 8)
+// ============================================================================
+
+function getGitHubUrl(cwd) {
+  const remote = runGit(['remote', 'get-url', 'origin'], cwd);
+  if (!remote) return null;
+
+  let url = remote;
+  // Convert SSH to HTTPS: git@github.com:user/repo.git -> https://github.com/user/repo
+  if (url.startsWith('git@')) {
+    url = url.replace(/^git@([^:]+):/, 'https://$1/');
+  }
+  // Remove .git suffix
+  url = url.replace(/\.git$/, '');
+
+  // Only return GitHub URLs
+  if (!url.includes('github.com')) return null;
+  return url;
+}
+
+function formatGitHubLink(cwd) {
+  const url = getGitHubUrl(cwd);
+  if (!url) return null;
+
+  // Extract repo name (last part of URL) as display text
+  const repoName = url.split('/').slice(-2).join('/');
+
+  // OSC 8 clickable link: \e]8;;URL\a DISPLAY_TEXT \e]8;;\a
+  return `\x1b]8;;${url}\x07${DIM}${repoName}${RESET}\x1b]8;;\x07`;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -361,10 +433,40 @@ function main() {
 
   console.log(parts.join(SEP));
 
-  // ── Line 2: current directory ──────────────────────────────────────────────
+  // ── Line 2: directory · cost · lines changed · cache rate ─────────────────
+  const line2Parts = [];
+
   const cwdDisplay = formatCwd(cwd);
   if (cwdDisplay) {
-    console.log(`${ORANGE}${cwdDisplay}${RESET}`);
+    line2Parts.push(`${ORANGE}${cwdDisplay}${RESET}`);
+  }
+
+  const costDisplay = formatCost(input.cost?.total_cost_usd);
+  if (costDisplay) {
+    line2Parts.push(`${BOLD}${costDisplay}${RESET}`);
+  }
+
+  const linesDisplay = formatLinesChanged(
+    input.cost?.total_lines_added,
+    input.cost?.total_lines_removed,
+  );
+  if (linesDisplay) {
+    line2Parts.push(linesDisplay);
+  }
+
+  const cacheDisplay = formatCacheRate(input.context_window?.current_usage);
+  if (cacheDisplay) {
+    line2Parts.push(cacheDisplay);
+  }
+
+  if (line2Parts.length > 0) {
+    console.log(line2Parts.join(SEP));
+  }
+
+  // ── Line 3: clickable GitHub repo link ────────────────────────────────────
+  const ghLink = formatGitHubLink(cwd);
+  if (ghLink) {
+    console.log(ghLink);
   }
 }
 

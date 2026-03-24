@@ -40,6 +40,59 @@ const RESET   = '\x1b[0m';
 const SEP = ` ${DIM}·${RESET} `;
 
 // ============================================================================
+// Terminal width detection & segment wrapping
+// ============================================================================
+
+function stripAnsi(str) {
+  // Strip ANSI escape sequences and OSC 8 hyperlinks
+  return str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07]*\x07/g, '');
+}
+
+function getTerminalWidth() {
+  if (process.env.COLUMNS) {
+    const cols = parseInt(process.env.COLUMNS, 10);
+    if (!isNaN(cols) && cols > 0) return cols;
+  }
+  try {
+    const cols = parseInt(
+      execSync('tput cols', { encoding: 'utf8', timeout: 500, stdio: ['pipe', 'pipe', 'pipe'] }).trim(),
+      10
+    );
+    if (!isNaN(cols) && cols > 0) return cols;
+  } catch { /* ignore */ }
+  return 0; // 0 = unknown, skip wrapping
+}
+
+function wrapSegments(segments, maxWidth) {
+  if (maxWidth <= 0 || segments.length === 0) return [segments.join(SEP)];
+
+  const sepWidth = stripAnsi(SEP).length;
+  const lines = [];
+  let currentLine = [];
+  let currentWidth = 0;
+
+  for (const seg of segments) {
+    const segWidth = stripAnsi(seg).length;
+    const addedWidth = currentLine.length > 0 ? sepWidth + segWidth : segWidth;
+
+    if (currentWidth + addedWidth > maxWidth && currentLine.length > 0) {
+      lines.push(currentLine.join(SEP));
+      currentLine = [seg];
+      currentWidth = segWidth;
+    } else {
+      currentLine.push(seg);
+      currentWidth += addedWidth;
+    }
+  }
+
+  if (currentLine.length > 0) {
+    lines.push(currentLine.join(SEP));
+  }
+
+  return lines;
+}
+
+// ============================================================================
 // Color thresholds
 // ============================================================================
 
@@ -453,9 +506,7 @@ function main() {
     parts.push(`Week ${color}${Math.round(pct)}%${RESET}${resetStr}`);
   }
 
-  console.log(parts.join(SEP));
-
-  // ── Line 2: directory · cost · lines changed · cache rate ─────────────────
+  // ── Line 2 parts: directory · cost ──────────────────────────────────────
   const line2Parts = [];
 
   const cwdDisplay = formatCwd(cwd);
@@ -468,10 +519,13 @@ function main() {
     line2Parts.push(`💰 ${costDisplay}`);
   }
 
-
-  if (line2Parts.length > 0) {
-    console.log(line2Parts.join(SEP));
-  }
+  // ── Output with auto-wrapping ─────────────────────────────────────────────
+  const termWidth = getTerminalWidth();
+  const allLines = [
+    ...wrapSegments(parts, termWidth),
+    ...(line2Parts.length > 0 ? wrapSegments(line2Parts, termWidth) : []),
+  ];
+  console.log(allLines.join('\n'));
 
 }
 

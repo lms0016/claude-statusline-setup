@@ -49,17 +49,15 @@ function stripAnsi(str) {
 }
 
 function getTerminalWidth() {
+  // Prefer explicit COLUMNS env var (set by Claude Code or the shell)
   if (process.env.COLUMNS) {
     const cols = parseInt(process.env.COLUMNS, 10);
     if (!isNaN(cols) && cols > 0) return cols;
   }
-  try {
-    const cols = parseInt(
-      execSync('tput cols', { encoding: 'utf8', timeout: 500, stdio: ['pipe', 'pipe', 'pipe'] }).trim(),
-      10
-    );
-    if (!isNaN(cols) && cols > 0) return cols;
-  } catch { /* ignore */ }
+  // stdout.columns is only available when connected to a real TTY
+  if (process.stdout.columns > 0) return process.stdout.columns;
+  // Skip tput: it returns a default 80 in non-TTY (piped) contexts,
+  // which is unreliable and causes unwanted wrapping.
   return 0; // 0 = unknown, skip wrapping
 }
 

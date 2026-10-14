@@ -173,26 +173,25 @@ function formatTokens(tokens) {
 function calculateContextUsage(contextWindow) {
   if (!contextWindow) return { used: 0, total: DEFAULT_CONTEXT_SIZE, percentage: 0 };
 
-  // Prefer pre-calculated percentage when available
-  if (contextWindow.used_percentage != null) {
-    const pct   = contextWindow.used_percentage;
-    const total = contextWindow.context_window_size || DEFAULT_CONTEXT_SIZE;
-    const used  = Math.round(pct / 100 * total);
-    return { used, total, percentage: pct };
-  }
-
   const total = contextWindow.context_window_size || DEFAULT_CONTEXT_SIZE;
-  let used = 0;
-  const cur = contextWindow.current_usage;
+  const pct   = contextWindow.used_percentage;
+  const cur   = contextWindow.current_usage;
+
+  // Prefer the actual token count: deriving it from the whole-number
+  // percentage is off by up to 1% of the window (10k on a 1M window)
+  let used;
   if (cur) {
     used = (cur.input_tokens || 0)
          + (cur.cache_read_input_tokens || 0)
          + (cur.cache_creation_input_tokens || 0);
+  } else if (pct != null) {
+    used = Math.round(pct / 100 * total);
   } else {
     used = contextWindow.total_input_tokens || 0;
   }
 
-  const percentage = total > 0 ? (used * 100) / total : 0;
+  // Keep the pre-calculated percentage when available
+  const percentage = pct != null ? pct : (total > 0 ? (used * 100) / total : 0);
   return { used, total, percentage };
 }
 

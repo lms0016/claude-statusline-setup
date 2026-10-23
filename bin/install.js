@@ -57,44 +57,52 @@ function copyStatuslineScript() {
   return true;
 }
 
-function updateSettings() {
-  const settingsPath = path.join(CLAUDE_DIR, SETTINGS_FILE);
-  let settings = {};
+const SETTINGS_PATH = path.join(CLAUDE_DIR, SETTINGS_FILE);
 
-  // Read existing settings if present
-  if (fs.existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    } catch (e) {
-      // Never overwrite a file we cannot parse: it would wipe the user's settings
-      log(`Error: Could not parse ${settingsPath}: ${e.message}`, RED);
-      log(`Fix the JSON and re-run, or add the statusLine config manually.`, YELLOW);
-      return false;
-    }
+// Returns the parsed settings object, or null if the file exists but cannot be used.
+// Runs before anything is installed, so a failure leaves the system untouched.
+function loadSettings() {
+  if (!fs.existsSync(SETTINGS_PATH)) return {};
+
+  const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+  if (raw.trim() === '') return {};
+
+  let settings;
+  try {
+    settings = JSON.parse(raw);
+  } catch (e) {
+    // Never overwrite a file we cannot parse: it would wipe the user's settings
+    log(`Error: Could not parse ${SETTINGS_PATH}: ${e.message}`, RED);
+    log(`Fix the JSON and re-run, or add the statusLine config manually.`, YELLOW);
+    return null;
   }
 
-  // Check if statusLine is already configured
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
+    log(`Error: ${SETTINGS_PATH} must contain a JSON object`, RED);
+    return null;
+  }
+  return settings;
+}
+
+function updateSettings(settings) {
   const statusLineConfig = {
     type: 'command',
-    command: `node "${path.join(os.homedir(), '.claude', STATUSLINE_FILE)}"`,
+    command: `node "${path.join(CLAUDE_DIR, STATUSLINE_FILE)}"`,
     padding: 0
   };
 
-  const expectedCommand = `node "${path.join(os.homedir(), '.claude', STATUSLINE_FILE)}"`;
-
+  // Check if statusLine is already configured
   if (settings.statusLine &&
       settings.statusLine.type === 'command' &&
-      settings.statusLine.command === expectedCommand) {
+      settings.statusLine.command === statusLineConfig.command) {
     log('statusLine is already configured', CYAN);
-    return true;
+    return;
   }
 
-  // Update statusLine config
   settings.statusLine = statusLineConfig;
 
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
   log(`Updated ${SETTINGS_FILE} with statusLine config`, GREEN);
-  return true;
 }
 
 function showSuccess() {
@@ -123,7 +131,9 @@ function main() {
 
   ensureClaudeDir();
 
-  if (copyStatuslineScript() && updateSettings()) {
+  const settings = loadSettings();
+  if (settings && copyStatuslineScript()) {
+    updateSettings(settings);
     showSuccess();
   } else {
     log('Setup failed!', RED);

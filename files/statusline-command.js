@@ -216,6 +216,7 @@ function gitCacheFile(cwd) {
   return path.join(os.tmpdir(), `claude-statusline-git-cache-${hash}.json`);
 }
 
+// Returns undefined on a miss; a hit may be null (cwd is not a git repo)
 function loadGitCache(cwd) {
   try {
     const cacheFile = gitCacheFile(cwd);
@@ -226,7 +227,7 @@ function loadGitCache(cwd) {
       }
     }
   } catch { /* ignore */ }
-  return null;
+  return undefined;
 }
 
 function saveGitCache(cwd, data) {
@@ -253,8 +254,11 @@ function isWorktree(cwd) {
 }
 
 function collectGitData(cwd) {
+  // Resolve here so sessions without a cwd in stdin don't share one cache key
+  cwd = cwd || process.cwd();
+
   const cached = loadGitCache(cwd);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
 
   const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   if (!branch) {

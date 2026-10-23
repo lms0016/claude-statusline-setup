@@ -1,5 +1,47 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Setup no longer wipes `settings.json` when it contains invalid JSON; it now
+  stops with an error and leaves the file untouched
+- Session / Week reset times use the local timezone instead of a hardcoded UTC+8
+- Git cache is stored per working directory, so concurrent sessions in different
+  folders no longer evict each other's cache
+- Git commands run without a shell, so branch names containing shell
+  metacharacters are passed through safely
+
+### Removed
+
+- Dead code left over from 1.4.0 (cache hit rate, GitHub link helpers)
+
+### Documentation
+
+- README: drop the macOS / Keychain requirement, document line 2, `[worktree]`
+  and lines changed
+- Add the missing MIT `LICENSE` file
+
+## [1.5.2] - 2026-10-14
+
+### Fixed
+
+- Context usage uses the actual token count from `current_usage` when present,
+  instead of deriving it from the rounded percentage
+
+## [1.5.1] - 2026-03-24
+
+### Fixed
+
+- Skip `tput cols` in non-TTY contexts, which reported a default width of 80
+  and caused unwanted wrapping
+
+## [1.5.0] - 2026-03-24
+
+### Added
+
+- Auto-wrap statusline segments at separator boundaries on narrow terminals
+
 ## [1.4.1] - 2026-03-24
 
 ### Fixed

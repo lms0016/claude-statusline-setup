@@ -69,6 +69,20 @@
 - Cache hit rate display (redundant with cost display)
 - Clickable GitHub link (OSC 8 not supported in statusline)
 
+## [1.3.1] - 2026-01-21
+
+### Fixed
+
+- Windows compatibility: cache file uses `os.tmpdir()` instead of `/tmp`,
+  Keychain access is skipped on Windows, path separators are normalized, and
+  the statusLine command runs the script through `node` with a full path
+
+## [1.3.0] - 2026-01-18
+
+### Added
+
+- Current directory display on a second line (home shortened to `~`)
+
 ## [1.2.0] - 2026-01-17
 
 ### Changed

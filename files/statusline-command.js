@@ -4,23 +4,23 @@
  * Claude Code Statusline - displays session usage info from stdin JSON
  *
  * Output format:
- *   ModelName · branch ✓ · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
- *   ~/Projects/myapp · $0.42 · +120 -15 lines · Cache 85%
- *   user/repo  (clickable link to GitHub)
+ *   ModelName · [worktree] branch ↑1 ~2 (+120 -15 lines) · Context 32% (65k/200k) · Session 70% @2pm · Week 6% @Jan 24, 9am
+ *   ~/Projects/myapp · 💰 $0.42
+ *
+ * Reset times are shown in the local timezone.
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 
 // ============================================================================
 // Config
 // ============================================================================
 
-const GIT_CACHE_FILE = path.join(os.tmpdir(), 'claude-statusline-git-cache.json');
 const GIT_CACHE_TTL = 5; // seconds
-const TIMEZONE_OFFSET = 8; // Asia/Taipei UTC+8
 const DEFAULT_CONTEXT_SIZE = 200000;
 
 // ============================================================================
@@ -108,12 +108,8 @@ function getContextColor(pct) {
 }
 
 // ============================================================================
-// Time formatting (Asia/Taipei UTC+8)
+// Time formatting (local timezone)
 // ============================================================================
-
-function toLocalDt(epochSeconds) {
-  return new Date(epochSeconds * 1000 + TIMEZONE_OFFSET * 60 * 60 * 1000);
-}
 
 function formatHour(hour, minute) {
   let hourStr, ampm;
@@ -133,8 +129,8 @@ function formatResetTime(value) {
   try {
     const epochSec = typeof value === 'number' ? value : Date.parse(value) / 1000;
     if (isNaN(epochSec)) return null;
-    const dt = toLocalDt(epochSec);
-    return formatHour(dt.getUTCHours(), dt.getUTCMinutes());
+    const dt = new Date(epochSec * 1000);
+    return formatHour(dt.getHours(), dt.getMinutes());
   } catch {
     return null;
   }
@@ -146,11 +142,11 @@ function formatWeekReset(value) {
   try {
     const epochSec = typeof value === 'number' ? value : Date.parse(value) / 1000;
     if (isNaN(epochSec)) return null;
-    const dt = toLocalDt(epochSec);
+    const dt = new Date(epochSec * 1000);
     const months = ['Jan','Feb','Mar','Apr','May','Jun',
                     'Jul','Aug','Sep','Oct','Nov','Dec'];
-    const timeStr = formatHour(dt.getUTCHours(), dt.getUTCMinutes());
-    return `${months[dt.getUTCMonth()]} ${dt.getUTCDate()}, ${timeStr}`;
+    const timeStr = formatHour(dt.getHours(), dt.getMinutes());
+    return `${months[dt.getMonth()]} ${dt.getDate()}, ${timeStr}`;
   } catch {
     return null;
   }
@@ -201,7 +197,8 @@ function calculateContextUsage(contextWindow) {
 
 function runGit(args, cwd) {
   try {
-    return execSync(`git ${args.join(' ')}`, {
+    // No shell: branch names may contain shell metacharacters like $ ( ) ;
+    return execFileSync('git', args, {
       encoding: 'utf8',
       cwd: cwd || process.cwd(),
       timeout: 2000,
@@ -213,21 +210,29 @@ function runGit(args, cwd) {
   }
 }
 
+// One cache file per cwd so concurrent sessions in different folders don't evict each other
+function gitCacheFile(cwd) {
+  const hash = crypto.createHash('md5').update(String(cwd)).digest('hex').slice(0, 12);
+  return path.join(os.tmpdir(), `claude-statusline-git-cache-${hash}.json`);
+}
+
+// Returns undefined on a miss; a hit may be null (cwd is not a git repo)
 function loadGitCache(cwd) {
   try {
-    if (fs.existsSync(GIT_CACHE_FILE)) {
-      const cache = JSON.parse(fs.readFileSync(GIT_CACHE_FILE, 'utf8'));
+    const cacheFile = gitCacheFile(cwd);
+    if (fs.existsSync(cacheFile)) {
+      const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
       if (cache.cwd === cwd && (Date.now() / 1000 - (cache.timestamp || 0)) < GIT_CACHE_TTL) {
         return cache.data;
       }
     }
   } catch { /* ignore */ }
-  return null;
+  return undefined;
 }
 
 function saveGitCache(cwd, data) {
   try {
-    fs.writeFileSync(GIT_CACHE_FILE, JSON.stringify({
+    fs.writeFileSync(gitCacheFile(cwd), JSON.stringify({
       cwd,
       timestamp: Date.now() / 1000,
       data,
@@ -249,8 +254,11 @@ function isWorktree(cwd) {
 }
 
 function collectGitData(cwd) {
+  // Resolve here so sessions without a cwd in stdin don't share one cache key
+  cwd = cwd || process.cwd();
+
   const cached = loadGitCache(cwd);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
 
   const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   if (!branch) {
@@ -315,8 +323,7 @@ function collectGitData(cwd) {
   return data;
 }
 
-function formatGitInfo(cwd) {
-  const git = collectGitData(cwd);
+function formatGitInfo(git) {
   if (!git) return null;
 
   const { branch, worktree, ahead, behind, status } = git;
@@ -371,7 +378,6 @@ function formatCwd(cwd) {
 function formatCost(costUsd) {
   if (costUsd == null || costUsd === 0) return null;
   if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
-  if (costUsd < 1) return `$${costUsd.toFixed(2)}`;
   return `$${costUsd.toFixed(2)}`;
 }
 
@@ -385,54 +391,6 @@ function formatLinesChanged(added, removed) {
   if (added > 0)   parts.push(`${GREEN}+${added}${RESET}`);
   if (removed > 0)  parts.push(`${RED}-${removed}${RESET}`);
   return parts.join(' ') + ` ${DIM}lines${RESET}`;
-}
-
-// ============================================================================
-// Cache hit rate
-// ============================================================================
-
-function formatCacheRate(currentUsage) {
-  if (!currentUsage) return null;
-  const cacheRead = currentUsage.cache_read_input_tokens || 0;
-  const cacheCreate = currentUsage.cache_creation_input_tokens || 0;
-  const inputTokens = currentUsage.input_tokens || 0;
-  const totalInput = cacheRead + cacheCreate + inputTokens;
-  if (totalInput === 0) return null;
-  const rate = (cacheRead / totalInput) * 100;
-  const color = rate >= 70 ? GREEN : rate >= 40 ? YELLOW : DIM;
-  return `Cache ${color}${Math.round(rate)}%${RESET}`;
-}
-
-// ============================================================================
-// Clickable GitHub link (OSC 8)
-// ============================================================================
-
-function getGitHubUrl(cwd) {
-  const remote = runGit(['remote', 'get-url', 'origin'], cwd);
-  if (!remote) return null;
-
-  let url = remote;
-  // Convert SSH to HTTPS: git@github.com:user/repo.git -> https://github.com/user/repo
-  if (url.startsWith('git@')) {
-    url = url.replace(/^git@([^:]+):/, 'https://$1/');
-  }
-  // Remove .git suffix
-  url = url.replace(/\.git$/, '');
-
-  // Only return GitHub URLs
-  if (!url.includes('github.com')) return null;
-  return url;
-}
-
-function formatGitHubLink(cwd) {
-  const url = getGitHubUrl(cwd);
-  if (!url) return null;
-
-  // Extract repo name (last part of URL) as display text
-  const repoName = url.split('/').slice(-2).join('/');
-
-  // OSC 8 clickable link: \e]8;;URL\a DISPLAY_TEXT \e]8;;\a
-  return `\x1b]8;;${url}\x07${DIM}${repoName}${RESET}\x1b]8;;\x07`;
 }
 
 // ============================================================================
@@ -459,7 +417,8 @@ function main() {
   const sevenDay = input.rate_limits?.seven_day  || null;
 
   // Git info (cached)
-  const gitInfo = formatGitInfo(cwd);
+  const git = collectGitData(cwd);
+  const gitInfo = formatGitInfo(git);
 
   // ── Assemble line 1 ────────────────────────────────────────────────────────
   const parts = [];
@@ -469,10 +428,7 @@ function main() {
   }
 
   if (gitInfo) {
-    const git = collectGitData(cwd);
-    const linesDisplay = git
-      ? formatLinesChanged(git.linesAdded, git.linesRemoved)
-      : null;
+    const linesDisplay = formatLinesChanged(git.linesAdded, git.linesRemoved);
     const gitSegment = linesDisplay
       ? `${gitInfo} ${DIM}(${RESET}${linesDisplay}${DIM})${RESET}`
       : gitInfo;

@@ -27,6 +27,21 @@ if echo "$cmd" | grep -qE 'git\s+(-C\s+\S+\s+)?push(\s|$)'; then
   head_msg=$(git log -1 --format=%s 2>/dev/null)
   if echo "$head_msg" | grep -qE '^chore: release v[0-9]+\.[0-9]+\.[0-9]+'; then
     release_ver=$(echo "$head_msg" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+
+    # Release commit must ship its CHANGELOG entry (checked in HEAD, not the working tree)
+    if ! git show HEAD:CHANGELOG.md 2>/dev/null | grep -qF "## [${release_ver#v}]"; then
+      cat <<EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Release commit $release_ver 的 CHANGELOG.md 沒有 '## [${release_ver#v}]' 段落，請補上後 amend 再推送"
+  }
+}
+EOF
+      exit 0
+    fi
+
     if [ -n "$release_ver" ] && ! git rev-parse "$release_ver" >/dev/null 2>&1; then
       git tag "$release_ver" HEAD 2>/dev/null
     fi

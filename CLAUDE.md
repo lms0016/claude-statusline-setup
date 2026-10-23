@@ -5,6 +5,8 @@
 本專案有 pre-push hook，會在 push 前檢查是否有未發版的 commits。
 
 Release commit（`chore: release vX.Y.Z`）會由 hook 自動建立對應的 git tag。
+該 commit 的 `CHANGELOG.md` 必須已有 `## [X.Y.Z]` 段落，否則 hook 會擋下 push（也不建 tag）；
+發版時 `package.json` 與 `CHANGELOG.md` 要在同一個 release commit 裡更新。
 Push 時使用 `git push --tags` 將 tag 一併推上去。
 
 當 hook 阻止 push 時：

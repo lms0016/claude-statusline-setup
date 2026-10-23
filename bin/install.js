@@ -66,7 +66,10 @@ function updateSettings() {
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     } catch (e) {
-      log(`Warning: Could not parse existing ${SETTINGS_FILE}`, YELLOW);
+      // Never overwrite a file we cannot parse: it would wipe the user's settings
+      log(`Error: Could not parse ${settingsPath}: ${e.message}`, RED);
+      log(`Fix the JSON and re-run, or add the statusLine config manually.`, YELLOW);
+      return false;
     }
   }
 
@@ -83,7 +86,7 @@ function updateSettings() {
       settings.statusLine.type === 'command' &&
       settings.statusLine.command === expectedCommand) {
     log('statusLine is already configured', CYAN);
-    return;
+    return true;
   }
 
   // Update statusLine config
@@ -91,6 +94,7 @@ function updateSettings() {
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   log(`Updated ${SETTINGS_FILE} with statusLine config`, GREEN);
+  return true;
 }
 
 function showSuccess() {
@@ -119,8 +123,7 @@ function main() {
 
   ensureClaudeDir();
 
-  if (copyStatuslineScript()) {
-    updateSettings();
+  if (copyStatuslineScript() && updateSettings()) {
     showSuccess();
   } else {
     log('Setup failed!', RED);

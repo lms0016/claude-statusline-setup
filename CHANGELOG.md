@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.4] - 2026-10-23
+
+### Fixed
+
+- Setup validates `settings.json` before installing anything, so a failed setup
+  no longer leaves a half-applied install
+- An empty `settings.json` is treated as `{}` again instead of failing setup
+- A `settings.json` that is valid JSON but not an object (e.g. `null`) now stops
+  setup with a clear error instead of crashing
+- Directories outside a git repo are cached too, instead of running `git` on
+  every refresh
+- Sessions whose stdin has no `cwd` no longer share one git cache entry
+
 ## [1.5.3] - 2026-10-23
 
 ### Fixed

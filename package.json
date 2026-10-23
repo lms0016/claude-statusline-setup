@@ -1,6 +1,6 @@
 {
   "name": "@lms0016/claude-statusline-setup",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "Setup Claude Code statusline with usage metrics display",
   "bin": {
     "claude-statusline-setup": "./bin/install.js"
